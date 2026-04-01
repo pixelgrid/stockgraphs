@@ -1,11 +1,11 @@
 # Stockgraphs
 
-A small, fully client-side web app that loads **1-minute intraday** stock prices from **Yahoo Finance** (unofficial chart API) and draws a **line chart** with [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts). You can mark specific moments in time with **vertical green lines**, driven by URL query parameters or the in-app settings panel.
+A small, fully client-side web app that loads **1-minute intraday** prices from **Finviz Elite** (`quote_export.ashx` CSV) and draws a **line chart** with [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts). You can mark specific moments in time with **vertical green lines**, driven by URL query parameters or the in-app settings panel.
 
 ## What it does
 
 - **Chart:** One line series of close prices for the requested symbol and range. The time axis shows clock times for intraday data (not only the calendar date).
-- **Vertical lines:** Optional Unix timestamps (seconds; millisecond values are accepted and converted). Each time is snapped to the **nearest 1-minute bar** on the chart so lines align even if the exact second does not match Yahoo’s bar times.
+- **Vertical lines:** Optional Unix timestamps (seconds; millisecond values are accepted and converted). Each time is snapped to the **nearest bar** on the chart so lines align even if the exact second does not match a bar time.
 - **Settings panel:** Symbol, range, refresh, and vertical-line inputs live behind a **Settings** button in the header so the default view stays minimal.
 - **Theme:** **Dark mode is the default.** Use the **Light / Dark** control to switch; the choice is stored in `localStorage`. The chart colors follow the same theme.
 - **Shareable URLs:** The address bar is kept in sync with symbol, range, and line times (via `history.replaceState`), so you can bookmark or share a link that reproduces the same view.
@@ -17,7 +17,7 @@ All parameters are optional unless noted.
 | Parameter | Aliases | Description |
 |-----------|---------|-------------|
 | `symbol` | `ticker` | Ticker symbol (default `AAPL`). |
-| `range` | — | Intraday window for **1m** data: `1d`, `5d`, or `7d` (default `1d`). Invalid values fall back to `1d`. |
+| `range` | — | Intraday window for **1m** (Finviz `p=i1`) data: `1d`, `5d`, or `7d` (default `1d`). Invalid values fall back to `1d`. |
 | `lines` | `at`, `timestamps`, `t` | Comma-separated Unix times for vertical lines. Values greater than `1e12` are treated as **milliseconds** and converted to seconds. |
 
 Example:
@@ -28,8 +28,8 @@ Example:
 
 ## Data source and limitations
 
-- Data comes from Yahoo’s public chart endpoint (`query1.finance.yahoo.com`). It is **not** an official API and may change, rate-limit, or block requests.
-- Browsers often block **direct** requests because of CORS. The app tries Yahoo first, then a public **CORS relay** (`corsproxy.io`) as a fallback. Relays can be unreliable; for production you may want your own proxy or another data provider.
+- Data comes from **Finviz Elite** CSV export: `https://elite.finviz.com/quote_export.ashx?t=…&p=i1&r=d1|d5|d7&auth=…` (`p=i1` = 1-minute bars; `r` = lookback). Configure the **`auth`** token in **Settings**; it is saved in **`localStorage`** for this origin only. Optional **`VITE_FINVIZ_QUOTE_TZ`** in `.env` sets the IANA timezone used to parse naive datetimes in the CSV (default `America/New_York`; see `.env.example`).
+- The app **always** loads CSV through **`corsproxy.io`** (Finviz does not allow cross-origin browser requests). The relay sees your full Finviz URL (including `auth`); for stronger privacy run your own proxy and point the app at it (would require a small code change).
 
 ## Local development
 
@@ -37,6 +37,8 @@ Example:
 npm install
 npm run dev
 ```
+
+In the app, open **Settings** and paste your Finviz Elite **export token** (`auth` from the `quote_export.ashx` URL). It is stored in **`localStorage`** in this browser only (not in the URL or git).
 
 Open the URL Vite prints (usually `http://localhost:5173`).
 
@@ -59,4 +61,4 @@ A GitHub Actions workflow (`.github/workflows/deploy-pages.yml`) can build and d
 
 ## License
 
-Use and modify as you like for your own projects. Yahoo and TradingView are trademarks of their respective owners; this app is not affiliated with either.
+Use and modify as you like for your own projects. Finviz and TradingView are trademarks of their respective owners; this app is not affiliated with either.

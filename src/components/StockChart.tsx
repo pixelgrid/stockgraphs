@@ -7,9 +7,13 @@ import {
   type IChartApi,
   type ISeriesApi,
   type Logical,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { nyTickMarkFormatter, nyTimeFormatter } from '../lib/nyTimeFormat'
+import {
+  exchangeTickMarkFormatter,
+  exchangeTimeFormatter,
+} from '../lib/exchangeTimeFormat'
 import type { ChartSeriesKind } from '../types/chart'
 
 export type ChartPoint = { time: number; value: number }
@@ -37,6 +41,8 @@ type Props = {
   seriesKind: ChartSeriesKind
   /** Horizontal baseline price; used when `seriesKind === 'baseline'`. */
   baselinePrice: number
+  /** Resolved IANA zone for axis labels (see `resolveChartTimeZone`). */
+  chartTimeZone: string
 }
 
 export function StockChart({
@@ -45,6 +51,7 @@ export function StockChart({
   theme,
   seriesKind,
   baselinePrice,
+  chartTimeZone,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -57,18 +64,32 @@ export function StockChart({
   const lineTimesRef = useRef(lineTimes)
   lineTimesRef.current = lineTimes
 
+  const tzRef = useRef(chartTimeZone)
+  tzRef.current = chartTimeZone
+
   const [vCoords, setVCoords] = useState<(number | null)[]>([])
 
   const updateVLineCoords = useCallback(() => {
     const chart = chartRef.current
     const times = lineTimesRef.current
+    const bars = dataRef.current
     if (!chart || !times.length) {
       setVCoords([])
       return
     }
+    const firstT = bars[0]?.time
+    const lastT = bars[bars.length - 1]?.time
     const ts = chart.timeScale()
     setVCoords(
       times.map((t) => {
+        if (
+          firstT == null ||
+          lastT == null ||
+          t < firstT ||
+          t > lastT
+        ) {
+          return null
+        }
         const idx = ts.timeToIndex(t as UTCTimestamp, true)
         if (idx === null) return null
         return ts.logicalToCoordinate(idx as unknown as Logical)
@@ -100,11 +121,12 @@ export function StockChart({
         borderColor: theme.border,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: nyTickMarkFormatter,
+        tickMarkFormatter: (t: Time, tt: number) =>
+          exchangeTickMarkFormatter(tzRef.current, t, Number(tt)),
       },
       localization: {
         locale: 'en-US',
-        timeFormatter: nyTimeFormatter,
+        timeFormatter: (t: Time) => exchangeTimeFormatter(tzRef.current, t),
       },
     })
 
@@ -227,15 +249,16 @@ export function StockChart({
         borderColor: theme.border,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: nyTickMarkFormatter,
+        tickMarkFormatter: (t: Time, tt: number) =>
+          exchangeTickMarkFormatter(tzRef.current, t, Number(tt)),
       },
       localization: {
         locale: 'en-US',
-        timeFormatter: nyTimeFormatter,
+        timeFormatter: (t: Time) => exchangeTimeFormatter(tzRef.current, t),
       },
     })
     updateVLineCoords()
-  }, [theme, updateVLineCoords])
+  }, [theme, chartTimeZone, updateVLineCoords])
 
   useEffect(() => {
     const series = seriesRef.current

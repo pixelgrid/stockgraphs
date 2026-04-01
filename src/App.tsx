@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StockChart } from './components/StockChart'
 import {
-  fetchYahooIntraday,
+  fetchFinvizEliteIntraday,
+  type ChartInstrumentMeta,
+  type IntradayChartResult,
   type IntradayRange,
-  type YahooInstrumentMeta,
-  type YahooIntradayResult,
-} from './lib/yahoo'
+} from './lib/finvizElite'
 import { valueAtNearestTime } from './lib/baselinePrice'
+import { resolveChartTimeZone } from './lib/exchangeTimeFormat'
 import {
   parseChartSeriesKindFromSearch,
   parseLinesFromSearch,
@@ -16,6 +17,16 @@ import {
 import type { ChartSeriesKind } from './types/chart'
 
 type ThemeMode = 'light' | 'dark'
+
+const FINVIZ_AUTH_STORAGE_KEY = 'finvizQuoteExportAuth'
+
+function readStoredFinvizAuth(): string {
+  try {
+    return localStorage.getItem(FINVIZ_AUTH_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 function readStoredTheme(): ThemeMode | null {
   const v = localStorage.getItem('theme')
@@ -61,17 +72,25 @@ function formatLinesForUrl(lines: number[]): string {
   return lines.join(',')
 }
 
-/** Company / short title next to the ticker; null if Yahoo only repeats the symbol. */
-function companyNameBesideSymbol(meta: YahooInstrumentMeta): string | null {
+/** Company / short title next to the ticker; null if only the symbol is known. */
+function companyNameBesideSymbol(meta: ChartInstrumentMeta): string | null {
   const name = meta.shortName?.trim() || meta.longName?.trim() || null
   if (!name || name.toUpperCase() === meta.symbol.toUpperCase()) return null
   return name
 }
 
-function ChartInstrumentHeader({ meta }: { meta: YahooInstrumentMeta }) {
+function ChartInstrumentHeader({ meta }: { meta: ChartInstrumentMeta }) {
   const company = companyNameBesideSymbol(meta)
   const venue = meta.fullExchangeName ?? meta.exchangeName
   const sub = [venue, meta.currency].filter(Boolean).join(' · ')
+  const clock =
+    meta.exchangeTimezoneName != null
+      ? `Chart time · ${meta.exchangeTimezoneName}${
+          meta.exchangeTimezoneShort
+            ? ` (${meta.exchangeTimezoneShort})`
+            : ''
+        }`
+      : null
 
   return (
     <div className="chart-instrument">
@@ -80,6 +99,7 @@ function ChartInstrumentHeader({ meta }: { meta: YahooInstrumentMeta }) {
         {company != null ? <span className="chart-name">{company}</span> : null}
       </div>
       {sub ? <div className="chart-instrument-sub muted">{sub}</div> : null}
+      {clock ? <div className="chart-instrument-sub muted">{clock}</div> : null}
     </div>
   )
 }
@@ -102,13 +122,33 @@ function App() {
     return readStoredTheme() ?? 'dark'
   })
 
-  const [chartData, setChartData] = useState<YahooIntradayResult | null>(null)
+  const [chartData, setChartData] = useState<IntradayChartResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [chartKind, setChartKind] = useState<ChartSeriesKind>(() =>
     parseChartSeriesKindFromSearch(window.location.search),
   )
+
+  const [finvizAuthToken, setFinvizAuthToken] = useState(readStoredFinvizAuth)
+  const [debouncedAuthTrim, setDebouncedAuthTrim] = useState(() =>
+    readStoredFinvizAuth().trim(),
+  )
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FINVIZ_AUTH_STORAGE_KEY, finvizAuthToken)
+    } catch {
+      /* quota / private mode */
+    }
+  }, [finvizAuthToken])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedAuthTrim(finvizAuthToken.trim())
+    }, 400)
+    return () => window.clearTimeout(id)
+  }, [finvizAuthToken])
 
   useEffect(() => {
     applyDomTheme(themeMode)
@@ -142,12 +182,23 @@ function App() {
   }, [querySymbol, range, lines, chartKind, syncUrl])
 
   useEffect(() => {
+    if (!debouncedAuthTrim) {
+      setChartData(null)
+      setError(null)
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
     setLoading(true)
     setError(null)
     void (async () => {
       try {
-        const next = await fetchYahooIntraday(querySymbol, range)
+        const next = await fetchFinvizEliteIntraday(
+          querySymbol,
+          range,
+          debouncedAuthTrim,
+        )
         if (!cancelled) {
           setChartData(next)
         }
@@ -165,7 +216,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [querySymbol, range])
+  }, [querySymbol, range, debouncedAuthTrim])
 
   const chartTheme = useMemo(
     () => (themeMode === 'dark' ? CHART_DARK : CHART_LIGHT),
@@ -177,10 +228,22 @@ function App() {
     if (!bars?.length) return 0
     const t0 = lines[0]
     if (t0 != null) {
-      const v = valueAtNearestTime(bars, t0)
-      if (v != null) return v
+      const lo = bars[0].time
+      const hi = bars[bars.length - 1].time
+      if (t0 >= lo && t0 <= hi) {
+        const v = valueAtNearestTime(bars, t0)
+        if (v != null) return v
+      }
     }
     return bars[0].value
+  }, [chartData?.bars, lines])
+
+  const linesOutsideBars = useMemo(() => {
+    const bars = chartData?.bars
+    if (!bars?.length || !lines.length) return false
+    const lo = bars[0].time
+    const hi = bars[bars.length - 1].time
+    return lines.some((t) => t < lo || t > hi)
   }, [chartData?.bars, lines])
 
   const commitSymbol = () => {
@@ -239,6 +302,24 @@ function App() {
 
       {settingsOpen ? (
         <div id="settings-panel" className="settings-panel">
+          <section className="lines-section">
+            <label className="field field-grow">
+              <span className="label">
+                Finviz Elite export token (<code className="code-inline">auth</code>{' '}
+                from quote export URL; stored in this browser only)
+              </span>
+              <input
+                className="input"
+                type="password"
+                value={finvizAuthToken}
+                onChange={(e) => setFinvizAuthToken(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="paste UUID from elite.finviz.com/quote_export.ashx?…&auth=…"
+              />
+            </label>
+          </section>
+
           <section className="controls">
             <label className="field">
               <span className="label">Symbol</span>
@@ -322,15 +403,34 @@ function App() {
               theme={chartTheme}
               seriesKind={chartKind}
               baselinePrice={baselinePrice}
+              chartTimeZone={resolveChartTimeZone(
+                chartData.meta.exchangeTimezoneName,
+              )}
             />
+            {linesOutsideBars ? (
+              <p className="chart-lines-note muted" role="status">
+                Some <code className="code-inline">lines</code> Unix times are
+                before the first bar or after the last (
+                {chartData.bars[0].time}–
+                {chartData.bars[chartData.bars.length - 1]?.time}). Those
+                markers are hidden. Build UTC seconds (e.g.{' '}
+                <code className="code-inline">Date.UTC(...)/1000</code> or{' '}
+                <code className="code-inline">new Date(sec * 1000)</code> to
+                verify).
+              </p>
+            ) : null}
           </>
         ) : !loading && !error ? (
-          <p className="muted">No data</p>
+          <p className="muted">
+            {debouncedAuthTrim
+              ? 'No data'
+              : 'Open Settings and paste your Finviz Elite export token (saved in this browser).'}
+          </p>
         ) : null}
       </div>
 
       <footer className="footer muted">
-        Data: Yahoo Finance (unofficial). URL params:{' '}
+        Data: Finviz Elite CSV export. URL params:{' '}
         <code className="code-inline">symbol</code>,{' '}
         <code className="code-inline">range</code>,{' '}
         <code className="code-inline">lines</code>,{' '}

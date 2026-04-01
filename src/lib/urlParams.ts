@@ -1,5 +1,5 @@
 import type { ChartSeriesKind } from '../types/chart'
-import type { IntradayRange } from './yahoo'
+import type { IntradayRange } from './intradayTypes'
 
 const RANGES: IntradayRange[] = ['1d', '5d', '7d']
 

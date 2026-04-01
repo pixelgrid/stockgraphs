@@ -1,4 +1,4 @@
-/** Close price at the 1m bar whose time is closest to `targetSec` (Unix seconds). */
+/** Close price at the bar whose time is closest to `targetSec` (Unix seconds). */
 export function valueAtNearestTime(
   bars: { time: number; value: number }[],
   targetSec: number,

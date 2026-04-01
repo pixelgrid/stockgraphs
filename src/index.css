@@ -253,6 +253,13 @@ body {
   font-size: 0.8125rem;
 }
 
+.chart-lines-note {
+  padding: 0 1rem 0.75rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
 .chart-shell {
   position: relative;
   width: 100%;

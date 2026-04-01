@@ -13,6 +13,8 @@
     "preview:gh-pages": "vite preview --base=/${npm_package_name}/"
   },
   "dependencies": {
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "lightweight-charts": "^5.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
