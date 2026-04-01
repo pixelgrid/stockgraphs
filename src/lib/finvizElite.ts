@@ -373,6 +373,7 @@ export async function fetchFinvizEliteIntraday(
   symbol: string,
   range: IntradayRange,
   auth: string,
+  signal?: AbortSignal,
 ): Promise<IntradayChartResult> {
   const token = auth.trim()
   if (!token) {
@@ -386,6 +387,7 @@ export async function fetchFinvizEliteIntraday(
     const res = await fetch(fetchUrl, {
       headers: { Accept: 'text/csv,*/*' },
       cache: 'no-store',
+      signal,
     })
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`)
@@ -400,6 +402,9 @@ export async function fetchFinvizEliteIntraday(
       meta: buildMeta(symbol, tz),
     }
   } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw e
+    }
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(
       `${msg}. Data is fetched via corsproxy.io only; the relay may be down or rate-limited.`,

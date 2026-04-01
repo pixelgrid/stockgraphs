@@ -4,7 +4,7 @@ A small, fully client-side web app that loads **1-minute intraday** prices from 
 
 ## What it does
 
-- **Chart:** One line series of close prices for the requested symbol and range. The time axis shows clock times for intraday data (not only the calendar date).
+- **Chart:** One line series of close prices for the requested symbol and range. The time axis and crosshair show clock times for intraday data. **Chart time zone** (New York vs Amsterdam) is chosen in Settings and stored in `localStorage`; it only changes **how** times are labeled, not the underlying Unix data or bar positions.
 - **Vertical lines:** Optional Unix timestamps (seconds; millisecond values are accepted and converted). Each time is snapped to the **nearest bar** on the chart so lines align even if the exact second does not match a bar time.
 - **Settings panel:** Symbol, range, refresh, and vertical-line inputs live behind a **Settings** button in the header so the default view stays minimal.
 - **Theme:** **Dark mode is the default.** Use the **Light / Dark** control to switch; the choice is stored in `localStorage`. The chart colors follow the same theme.

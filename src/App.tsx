@@ -7,7 +7,17 @@ import {
   type IntradayRange,
 } from './lib/finvizElite'
 import { valueAtNearestTime } from './lib/baselinePrice'
-import { resolveChartTimeZone } from './lib/exchangeTimeFormat'
+import {
+  CHART_DISPLAY_TIMEZONE_STORAGE_KEY,
+  CHART_DISPLAY_TIMEZONES,
+  labelForChartDisplayTimeZone,
+  readStoredChartDisplayTimeZoneIana,
+  type ChartDisplayTimeZoneIana,
+} from './lib/chartDisplayTimeZone'
+import {
+  formatUnixSecondsForDisplay,
+  resolveChartTimeZone,
+} from './lib/exchangeTimeFormat'
 import {
   parseChartSeriesKindFromSearch,
   parseLinesFromSearch,
@@ -36,6 +46,13 @@ function readStoredTheme(): ThemeMode | null {
 
 function applyDomTheme(mode: ThemeMode) {
   document.documentElement.dataset.theme = mode
+}
+
+function isAbortError(e: unknown): boolean {
+  return (
+    (e instanceof DOMException && e.name === 'AbortError') ||
+    (e instanceof Error && e.name === 'AbortError')
+  )
 }
 
 const CHART_LIGHT = {
@@ -79,18 +96,17 @@ function companyNameBesideSymbol(meta: ChartInstrumentMeta): string | null {
   return name
 }
 
-function ChartInstrumentHeader({ meta }: { meta: ChartInstrumentMeta }) {
+function ChartInstrumentHeader({
+  meta,
+  displayTimeZone,
+}: {
+  meta: ChartInstrumentMeta
+  displayTimeZone: { iana: ChartDisplayTimeZoneIana; label: string }
+}) {
   const company = companyNameBesideSymbol(meta)
   const venue = meta.fullExchangeName ?? meta.exchangeName
   const sub = [venue, meta.currency].filter(Boolean).join(' · ')
-  const clock =
-    meta.exchangeTimezoneName != null
-      ? `Chart time · ${meta.exchangeTimezoneName}${
-          meta.exchangeTimezoneShort
-            ? ` (${meta.exchangeTimezoneShort})`
-            : ''
-        }`
-      : null
+  const clock = `Chart time · ${displayTimeZone.label} (${displayTimeZone.iana})`
 
   return (
     <div className="chart-instrument">
@@ -99,7 +115,7 @@ function ChartInstrumentHeader({ meta }: { meta: ChartInstrumentMeta }) {
         {company != null ? <span className="chart-name">{company}</span> : null}
       </div>
       {sub ? <div className="chart-instrument-sub muted">{sub}</div> : null}
-      {clock ? <div className="chart-instrument-sub muted">{clock}</div> : null}
+      <div className="chart-instrument-sub muted">{clock}</div>
     </div>
   )
 }
@@ -135,6 +151,9 @@ function App() {
     readStoredFinvizAuth().trim(),
   )
 
+  const [chartDisplayTimeZone, setChartDisplayTimeZone] =
+    useState<ChartDisplayTimeZoneIana>(readStoredChartDisplayTimeZoneIana)
+
   useEffect(() => {
     try {
       localStorage.setItem(FINVIZ_AUTH_STORAGE_KEY, finvizAuthToken)
@@ -142,6 +161,17 @@ function App() {
       /* quota / private mode */
     }
   }, [finvizAuthToken])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CHART_DISPLAY_TIMEZONE_STORAGE_KEY,
+        chartDisplayTimeZone,
+      )
+    } catch {
+      /* quota / private mode */
+    }
+  }, [chartDisplayTimeZone])
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -189,7 +219,9 @@ function App() {
       return
     }
 
-    let cancelled = false
+    const ac = new AbortController()
+    let stale = false
+
     setLoading(true)
     setError(null)
     void (async () => {
@@ -198,23 +230,24 @@ function App() {
           querySymbol,
           range,
           debouncedAuthTrim,
+          ac.signal,
         )
-        if (!cancelled) {
-          setChartData(next)
-        }
+        if (stale) return
+        setChartData(next)
       } catch (e) {
-        if (!cancelled) {
-          setChartData(null)
-          setError(e instanceof Error ? e.message : 'Unknown error')
-        }
+        if (stale || isAbortError(e)) return
+        setChartData(null)
+        setError(e instanceof Error ? e.message : 'Unknown error')
       } finally {
-        if (!cancelled) {
+        if (!stale) {
           setLoading(false)
         }
       }
     })()
+
     return () => {
-      cancelled = true
+      stale = true
+      ac.abort()
     }
   }, [querySymbol, range, debouncedAuthTrim])
 
@@ -245,6 +278,16 @@ function App() {
     const hi = bars[bars.length - 1].time
     return lines.some((t) => t < lo || t > hi)
   }, [chartData?.bars, lines])
+
+  const resolvedChartDisplayTimeZone = useMemo(
+    () => resolveChartTimeZone(chartDisplayTimeZone),
+    [chartDisplayTimeZone],
+  )
+
+  const chartDisplayTimeZoneLabel = useMemo(
+    () => labelForChartDisplayTimeZone(chartDisplayTimeZone),
+    [chartDisplayTimeZone],
+  )
 
   const commitSymbol = () => {
     const s = symbolInput.trim() || 'AAPL'
@@ -360,6 +403,24 @@ function App() {
                 <option value="baseline">Baseline</option>
               </select>
             </label>
+            <label className="field">
+              <span className="label">Chart time zone</span>
+              <select
+                className="input select"
+                value={chartDisplayTimeZone}
+                onChange={(e) =>
+                  setChartDisplayTimeZone(
+                    e.target.value as ChartDisplayTimeZoneIana,
+                  )
+                }
+              >
+                {CHART_DISPLAY_TIMEZONES.map((z) => (
+                  <option key={z.iana} value={z.iana}>
+                    {z.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="btn"
@@ -396,17 +457,31 @@ function App() {
       <div className="chart-wrap">
         {chartData?.bars.length ? (
           <>
-            <ChartInstrumentHeader meta={chartData.meta} />
+            <ChartInstrumentHeader
+              meta={chartData.meta}
+              displayTimeZone={{
+                iana: chartDisplayTimeZone,
+                label: chartDisplayTimeZoneLabel,
+              }}
+            />
             <StockChart
               data={chartData.bars}
               lineTimes={lines}
               theme={chartTheme}
               seriesKind={chartKind}
               baselinePrice={baselinePrice}
-              chartTimeZone={resolveChartTimeZone(
-                chartData.meta.exchangeTimezoneName,
-              )}
+              chartTimeZone={resolvedChartDisplayTimeZone}
             />
+            {lines.length > 0 ? (
+              <p className="chart-lines-note muted" role="status">
+                Vertical line times ({chartDisplayTimeZoneLabel}):{' '}
+                {lines
+                  .map((t) =>
+                    formatUnixSecondsForDisplay(t, resolvedChartDisplayTimeZone),
+                  )
+                  .join(' · ')}
+              </p>
+            ) : null}
             {linesOutsideBars ? (
               <p className="chart-lines-note muted" role="status">
                 Some <code className="code-inline">lines</code> Unix times are

@@ -54,6 +54,20 @@ function formatInZone(
   }
 }
 
+/** Format absolute Unix seconds (e.g. vertical line times) in a chart zone. */
+export function formatUnixSecondsForDisplay(
+  unixSec: number,
+  timeZone: string,
+): string {
+  const d = new Date(unixSec * 1000)
+  return formatInZone(d, timeZone, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 /** Crosshair / time-scale hover label. */
 export function exchangeTimeFormatter(timeZone: string, time: Time): string {
   const ms = utcMsFromTime(time)
