@@ -1,16 +1,59 @@
 export type IntradayRange = '1d' | '5d' | '7d'
 
+export type YahooInstrumentMeta = {
+  symbol: string
+  shortName: string | null
+  longName: string | null
+  currency: string | null
+  exchangeName: string | null
+  fullExchangeName: string | null
+}
+
+export type YahooIntradayResult = {
+  bars: { time: number; value: number }[]
+  meta: YahooInstrumentMeta
+}
+
+type YahooResultRow = {
+  meta?: {
+    symbol?: string
+    shortName?: string
+    longName?: string
+    currency?: string
+    exchangeName?: string
+    fullExchangeName?: string
+  }
+  timestamp: number[]
+  indicators?: { quote?: Array<{ close?: (number | null)[] }> }
+}
+
 type YahooChartJson = {
   chart?: {
     error?: { description?: string }
-    result?: Array<{
-      timestamp: number[]
-      indicators?: { quote?: Array<{ close?: (number | null)[] }> }
-    }>
+    result?: YahooResultRow[]
   }
 }
 
-function parseChart(json: YahooChartJson): { time: number; value: number }[] {
+function extractMeta(
+  result: YahooResultRow,
+  requestedSymbol: string,
+): YahooInstrumentMeta {
+  const m = result.meta
+  const sym = m?.symbol?.trim() || requestedSymbol.trim() || '—'
+  return {
+    symbol: sym,
+    shortName: m?.shortName?.trim() ?? null,
+    longName: m?.longName?.trim() ?? null,
+    currency: m?.currency?.trim() ?? null,
+    exchangeName: m?.exchangeName?.trim() ?? null,
+    fullExchangeName: m?.fullExchangeName?.trim() ?? null,
+  }
+}
+
+function parseChart(
+  json: YahooChartJson,
+  requestedSymbol: string,
+): YahooIntradayResult {
   const err = json.chart?.error
   if (err) {
     throw new Error(err.description ?? 'Yahoo Finance error')
@@ -19,23 +62,24 @@ function parseChart(json: YahooChartJson): { time: number; value: number }[] {
   if (!result?.timestamp?.length) {
     throw new Error('No chart data returned')
   }
+  const meta = extractMeta(result, requestedSymbol)
   const closes = result.indicators?.quote?.[0]?.close
   if (!closes || closes.length !== result.timestamp.length) {
     throw new Error('Invalid quote data')
   }
   // Yahoo `timestamp` entries are Unix seconds (UTC); matches lightweight-charts UTCTimestamp.
-  const out: { time: number; value: number }[] = []
+  const bars: { time: number; value: number }[] = []
   for (let i = 0; i < result.timestamp.length; i++) {
     const c = closes[i]
     const t = result.timestamp[i]
     if (c != null && Number.isFinite(c) && Number.isFinite(t)) {
-      out.push({ time: t, value: c })
+      bars.push({ time: t, value: c })
     }
   }
-  if (!out.length) {
+  if (!bars.length) {
     throw new Error('No valid price points')
   }
-  return out
+  return { bars, meta }
 }
 
 /**
@@ -45,9 +89,10 @@ function parseChart(json: YahooChartJson): { time: number; value: number }[] {
 export async function fetchYahooIntraday(
   symbol: string,
   range: IntradayRange,
-): Promise<{ time: number; value: number }[]> {
+): Promise<YahooIntradayResult> {
+  const trimmed = symbol.trim()
   const qs = new URLSearchParams({ interval: '1m', range })
-  const path = `/v8/finance/chart/${encodeURIComponent(symbol.trim())}?${qs}`
+  const path = `/v8/finance/chart/${encodeURIComponent(trimmed)}?${qs}`
   const yahooUrl = `https://query1.finance.yahoo.com${path}`
 
   const urls: string[] = [
@@ -66,7 +111,7 @@ export async function fetchYahooIntraday(
         continue
       }
       const json = (await res.json()) as YahooChartJson
-      return parseChart(json)
+      return parseChart(json, trimmed)
     } catch (e) {
       lastMessage = e instanceof Error ? e.message : String(e)
     }

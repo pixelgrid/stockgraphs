@@ -222,6 +222,37 @@ body {
   overflow: hidden;
 }
 
+.chart-instrument {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-instrument-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+
+.chart-symbol {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.chart-instrument-sub {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+}
+
 .chart-shell {
   position: relative;
   width: 100%;

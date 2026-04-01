@@ -3,6 +3,8 @@ import { StockChart } from './components/StockChart'
 import {
   fetchYahooIntraday,
   type IntradayRange,
+  type YahooInstrumentMeta,
+  type YahooIntradayResult,
 } from './lib/yahoo'
 import {
   parseLinesFromSearch,
@@ -46,6 +48,29 @@ function formatLinesForUrl(lines: number[]): string {
   return lines.join(',')
 }
 
+/** Company / short title next to the ticker; null if Yahoo only repeats the symbol. */
+function companyNameBesideSymbol(meta: YahooInstrumentMeta): string | null {
+  const name = meta.shortName?.trim() || meta.longName?.trim() || null
+  if (!name || name.toUpperCase() === meta.symbol.toUpperCase()) return null
+  return name
+}
+
+function ChartInstrumentHeader({ meta }: { meta: YahooInstrumentMeta }) {
+  const company = companyNameBesideSymbol(meta)
+  const venue = meta.fullExchangeName ?? meta.exchangeName
+  const sub = [venue, meta.currency].filter(Boolean).join(' · ')
+
+  return (
+    <div className="chart-instrument">
+      <div className="chart-instrument-main">
+        <span className="chart-symbol">{meta.symbol}</span>
+        {company != null ? <span className="chart-name">{company}</span> : null}
+      </div>
+      {sub ? <div className="chart-instrument-sub muted">{sub}</div> : null}
+    </div>
+  )
+}
+
 function App() {
   const initialSymbol = parseSymbolFromSearch(window.location.search)
   const [symbolInput, setSymbolInput] = useState(initialSymbol)
@@ -64,7 +89,7 @@ function App() {
     return readStoredTheme() ?? 'dark'
   })
 
-  const [data, setData] = useState<Awaited<ReturnType<typeof fetchYahooIntraday>> | null>(null)
+  const [chartData, setChartData] = useState<YahooIntradayResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -98,13 +123,13 @@ function App() {
     setError(null)
     void (async () => {
       try {
-        const bars = await fetchYahooIntraday(querySymbol, range)
+        const next = await fetchYahooIntraday(querySymbol, range)
         if (!cancelled) {
-          setData(bars)
+          setChartData(next)
         }
       } catch (e) {
         if (!cancelled) {
-          setData(null)
+          setChartData(null)
           setError(e instanceof Error ? e.message : 'Unknown error')
         }
       } finally {
@@ -240,8 +265,15 @@ function App() {
       {error ? <p className="error" role="alert">{error}</p> : null}
 
       <div className="chart-wrap">
-        {data?.length ? (
-          <StockChart data={data} lineTimes={lines} theme={chartTheme} />
+        {chartData?.bars.length ? (
+          <>
+            <ChartInstrumentHeader meta={chartData.meta} />
+            <StockChart
+              data={chartData.bars}
+              lineTimes={lines}
+              theme={chartTheme}
+            />
+          </>
         ) : !loading && !error ? (
           <p className="muted">No data</p>
         ) : null}
