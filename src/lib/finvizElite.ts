@@ -86,8 +86,27 @@ function normHeader(s: string): string {
   return s.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+/**
+ * Finviz `quote_export` often uses 24h clock hours with a redundant AM/PM suffix
+ * (e.g. `04/01/2026 13:00 PM`, `04/01/2026 17:04 PM`). That breaks `hh:mm a` (hours
+ * 1–12 only) and `HH:mm` (no AM/PM token), so rows after noon were skipped.
+ */
+function normalizeFinvizHybridAmPmDateTime(cell: string): string {
+  const m =
+    /^(\d{1,2}\/\d{1,2}\/\d{4}) (\d{1,2}):(\d{2})(?::(\d{2}))? (AM|PM)$/i.exec(
+      cell.trim(),
+    )
+  if (!m) return cell.trim()
+  const hour = Number(m[2])
+  if (hour >= 13) {
+    const sec = m[4] != null ? `:${m[4]}` : ''
+    return `${m[1]} ${m[2]}:${m[3]}${sec}`
+  }
+  return cell.trim()
+}
+
 function parseFlexibleDateTime(cell: string, tz: string): number | null {
-  const c = cell.trim()
+  const c = normalizeFinvizHybridAmPmDateTime(cell.trim())
   if (!c) return null
 
   if (/^\d{10}$/.test(c)) return Number(c)
