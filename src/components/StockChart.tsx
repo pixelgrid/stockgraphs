@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  BaselineSeries,
   ColorType,
   LineSeries,
   createChart,
@@ -8,8 +9,11 @@ import {
   type Logical,
   type UTCTimestamp,
 } from 'lightweight-charts'
+import { nyTickMarkFormatter, nyTimeFormatter } from '../lib/nyTimeFormat'
+import type { ChartSeriesKind } from '../types/chart'
 
 export type ChartPoint = { time: number; value: number }
+export type { ChartSeriesKind }
 
 export type ThemeChart = {
   bg: string
@@ -19,18 +23,37 @@ export type ThemeChart = {
   line: string
   crosshair: string
   vline: string
+  baselineTopFill1: string
+  baselineTopFill2: string
+  baselineBottomFill1: string
+  baselineBottomFill2: string
+  baselineBelowLine: string
 }
 
 type Props = {
   data: ChartPoint[]
   lineTimes: number[]
   theme: ThemeChart
+  seriesKind: ChartSeriesKind
+  /** Horizontal baseline price; used when `seriesKind === 'baseline'`. */
+  baselinePrice: number
 }
 
-export function StockChart({ data, lineTimes, theme }: Props) {
+export function StockChart({
+  data,
+  lineTimes,
+  theme,
+  seriesKind,
+  baselinePrice,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const seriesRef = useRef<ISeriesApi<'Line'> | ISeriesApi<'Baseline'> | null>(
+    null,
+  )
+  const dataRef = useRef(data)
+  dataRef.current = data
+
   const lineTimesRef = useRef(lineTimes)
   lineTimesRef.current = lineTimes
 
@@ -46,8 +69,6 @@ export function StockChart({ data, lineTimes, theme }: Props) {
     const ts = chart.timeScale()
     setVCoords(
       times.map((t) => {
-        // timeToCoordinate() uses exact timeToIndex only; user timestamps rarely
-        // match Yahoo 1m bar times exactly. Nearest index + logicalToCoordinate works.
         const idx = ts.timeToIndex(t as UTCTimestamp, true)
         if (idx === null) return null
         return ts.logicalToCoordinate(idx as unknown as Logical)
@@ -79,22 +100,15 @@ export function StockChart({ data, lineTimes, theme }: Props) {
         borderColor: theme.border,
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: nyTickMarkFormatter,
       },
       localization: {
-        locale: navigator.language,
+        locale: 'en-US',
+        timeFormatter: nyTimeFormatter,
       },
-    })
-
-    const series = chart.addSeries(LineSeries, {
-      color: theme.line,
-      lineWidth: 2,
-      crosshairMarkerVisible: true,
-      lastValueVisible: true,
-      priceLineVisible: true,
     })
 
     chartRef.current = chart
-    seriesRef.current = series
 
     const onLogical = () => updateVLineCoords()
     const onTime = () => updateVLineCoords()
@@ -121,13 +135,79 @@ export function StockChart({ data, lineTimes, theme }: Props) {
       chartRef.current = null
       seriesRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chart is created once; theme updates via applyOptions
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chart shell once; series swapped separately
   }, [updateVLineCoords])
 
   useEffect(() => {
     const chart = chartRef.current
-    const series = seriesRef.current
-    if (!chart || !series) return
+    if (!chart) return
+
+    const prev = seriesRef.current
+    if (prev) {
+      chart.removeSeries(prev)
+      seriesRef.current = null
+    }
+
+    const price =
+      Number.isFinite(baselinePrice) && baselinePrice > 0
+        ? baselinePrice
+        : dataRef.current[0]?.value ?? 0
+
+    let series: ISeriesApi<'Line'> | ISeriesApi<'Baseline'>
+    if (seriesKind === 'line') {
+      series = chart.addSeries(LineSeries, {
+        color: theme.line,
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
+        lastValueVisible: true,
+        priceLineVisible: true,
+      })
+    } else {
+      series = chart.addSeries(BaselineSeries, {
+        baseValue: { type: 'price', price },
+        relativeGradient: false,
+        lineWidth: 2,
+        topLineColor: theme.line,
+        topFillColor1: theme.baselineTopFill1,
+        topFillColor2: theme.baselineTopFill2,
+        bottomLineColor: theme.baselineBelowLine,
+        bottomFillColor1: theme.baselineBottomFill1,
+        bottomFillColor2: theme.baselineBottomFill2,
+        crosshairMarkerVisible: true,
+        lastValueVisible: true,
+        priceLineVisible: true,
+      })
+    }
+    seriesRef.current = series
+
+    const points = dataRef.current
+    if (points.length) {
+      series.setData(
+        points.map((d) => ({
+          time: d.time as UTCTimestamp,
+          value: d.value,
+        })),
+      )
+      chart.timeScale().fitContent()
+      requestAnimationFrame(() => updateVLineCoords())
+    }
+
+    return () => {
+      if (chartRef.current && seriesRef.current) {
+        chartRef.current.removeSeries(seriesRef.current)
+        seriesRef.current = null
+      }
+    }
+  }, [
+    seriesKind,
+    baselinePrice,
+    theme,
+    updateVLineCoords,
+  ])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
 
     chart.applyOptions({
       layout: {
@@ -147,9 +227,13 @@ export function StockChart({ data, lineTimes, theme }: Props) {
         borderColor: theme.border,
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: nyTickMarkFormatter,
+      },
+      localization: {
+        locale: 'en-US',
+        timeFormatter: nyTimeFormatter,
       },
     })
-    series.applyOptions({ color: theme.line })
     updateVLineCoords()
   }, [theme, updateVLineCoords])
 

@@ -1,3 +1,4 @@
+import type { ChartSeriesKind } from '../types/chart'
 import type { IntradayRange } from './yahoo'
 
 const RANGES: IntradayRange[] = ['1d', '5d', '7d']
@@ -36,4 +37,15 @@ export function parseRangeFromSearch(search: string): IntradayRange {
   const params = new URLSearchParams(search)
   const r = params.get('range') ?? '1d'
   return isRange(r) ? r : '1d'
+}
+
+export function parseChartSeriesKindFromSearch(search: string): ChartSeriesKind {
+  const params = new URLSearchParams(search)
+  const v = (
+    params.get('view') ??
+    params.get('chart') ??
+    params.get('mode') ??
+    ''
+  ).toLowerCase()
+  return v === 'baseline' ? 'baseline' : 'line'
 }

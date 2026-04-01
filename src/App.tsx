@@ -6,11 +6,14 @@ import {
   type YahooInstrumentMeta,
   type YahooIntradayResult,
 } from './lib/yahoo'
+import { valueAtNearestTime } from './lib/baselinePrice'
 import {
+  parseChartSeriesKindFromSearch,
   parseLinesFromSearch,
   parseRangeFromSearch,
   parseSymbolFromSearch,
 } from './lib/urlParams'
+import type { ChartSeriesKind } from './types/chart'
 
 type ThemeMode = 'light' | 'dark'
 
@@ -32,6 +35,11 @@ const CHART_LIGHT = {
   line: '#2563eb',
   crosshair: '#9ca3af',
   vline: 'rgba(22, 163, 74, 0.65)',
+  baselineTopFill1: 'rgba(37, 99, 235, 0.28)',
+  baselineTopFill2: 'rgba(37, 99, 235, 0.05)',
+  baselineBottomFill1: 'rgba(220, 38, 38, 0.06)',
+  baselineBottomFill2: 'rgba(220, 38, 38, 0.26)',
+  baselineBelowLine: '#dc2626',
 }
 
 const CHART_DARK = {
@@ -42,6 +50,11 @@ const CHART_DARK = {
   line: '#60a5fa',
   crosshair: '#6b7280',
   vline: 'rgba(74, 222, 128, 0.7)',
+  baselineTopFill1: 'rgba(96, 165, 250, 0.28)',
+  baselineTopFill2: 'rgba(96, 165, 250, 0.05)',
+  baselineBottomFill1: 'rgba(248, 113, 113, 0.08)',
+  baselineBottomFill2: 'rgba(248, 113, 113, 0.28)',
+  baselineBelowLine: '#f87171',
 }
 
 function formatLinesForUrl(lines: number[]): string {
@@ -93,6 +106,9 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [chartKind, setChartKind] = useState<ChartSeriesKind>(() =>
+    parseChartSeriesKindFromSearch(window.location.search),
+  )
 
   useEffect(() => {
     applyDomTheme(themeMode)
@@ -100,12 +116,20 @@ function App() {
   }, [themeMode])
 
   const syncUrl = useCallback(
-    (sym: string, rng: IntradayRange, lineList: number[]) => {
+    (
+      sym: string,
+      rng: IntradayRange,
+      lineList: number[],
+      kind: ChartSeriesKind,
+    ) => {
       const p = new URLSearchParams()
       p.set('symbol', sym)
       p.set('range', rng)
       if (lineList.length) {
         p.set('lines', formatLinesForUrl(lineList))
+      }
+      if (kind === 'baseline') {
+        p.set('view', 'baseline')
       }
       const next = `${window.location.pathname}?${p.toString()}`
       window.history.replaceState(null, '', next)
@@ -114,8 +138,8 @@ function App() {
   )
 
   useEffect(() => {
-    syncUrl(querySymbol, range, lines)
-  }, [querySymbol, range, lines, syncUrl])
+    syncUrl(querySymbol, range, lines, chartKind)
+  }, [querySymbol, range, lines, chartKind, syncUrl])
 
   useEffect(() => {
     let cancelled = false
@@ -147,6 +171,17 @@ function App() {
     () => (themeMode === 'dark' ? CHART_DARK : CHART_LIGHT),
     [themeMode],
   )
+
+  const baselinePrice = useMemo(() => {
+    const bars = chartData?.bars
+    if (!bars?.length) return 0
+    const t0 = lines[0]
+    if (t0 != null) {
+      const v = valueAtNearestTime(bars, t0)
+      if (v != null) return v
+    }
+    return bars[0].value
+  }, [chartData?.bars, lines])
 
   const commitSymbol = () => {
     const s = symbolInput.trim() || 'AAPL'
@@ -231,6 +266,19 @@ function App() {
                 <option value="7d">7 days (1m)</option>
               </select>
             </label>
+            <label className="field">
+              <span className="label">Chart</span>
+              <select
+                className="input select"
+                value={chartKind}
+                onChange={(e) =>
+                  setChartKind(e.target.value as ChartSeriesKind)
+                }
+              >
+                <option value="line">Line</option>
+                <option value="baseline">Baseline</option>
+              </select>
+            </label>
             <button
               type="button"
               className="btn"
@@ -272,6 +320,8 @@ function App() {
               data={chartData.bars}
               lineTimes={lines}
               theme={chartTheme}
+              seriesKind={chartKind}
+              baselinePrice={baselinePrice}
             />
           </>
         ) : !loading && !error ? (
@@ -283,7 +333,8 @@ function App() {
         Data: Yahoo Finance (unofficial). URL params:{' '}
         <code className="code-inline">symbol</code>,{' '}
         <code className="code-inline">range</code>,{' '}
-        <code className="code-inline">lines</code>
+        <code className="code-inline">lines</code>,{' '}
+        <code className="code-inline">view=baseline</code>
       </footer>
     </div>
   )
