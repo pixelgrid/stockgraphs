@@ -10,6 +10,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
+import { nearestBarTime } from '../lib/baselinePrice'
 import {
   exchangeTickMarkFormatter,
   exchangeTimeFormatter,
@@ -41,7 +42,7 @@ type Props = {
   seriesKind: ChartSeriesKind
   /** Horizontal baseline price; used when `seriesKind === 'baseline'`. */
   baselinePrice: number
-  /** Resolved IANA zone for axis labels (see `resolveChartTimeZone`). */
+  /** IANA zone for axis labels (NY or AMS display toggle from app). */
   chartTimeZone: string
 }
 
@@ -77,20 +78,13 @@ export function StockChart({
       setVCoords([])
       return
     }
-    const firstT = bars[0]?.time
-    const lastT = bars[bars.length - 1]?.time
     const ts = chart.timeScale()
     setVCoords(
       times.map((t) => {
-        if (
-          firstT == null ||
-          lastT == null ||
-          t < firstT ||
-          t > lastT
-        ) {
-          return null
-        }
-        const idx = ts.timeToIndex(t as UTCTimestamp, true)
+        if (!Number.isFinite(t)) return null
+        const snapped = nearestBarTime(bars, t)
+        if (snapped == null) return null
+        const idx = ts.timeToIndex(snapped as UTCTimestamp, false)
         if (idx === null) return null
         return ts.logicalToCoordinate(idx as unknown as Logical)
       }),

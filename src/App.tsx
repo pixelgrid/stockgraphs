@@ -6,18 +6,15 @@ import {
   type IntradayChartResult,
   type IntradayRange,
 } from './lib/finvizElite'
-import { valueAtNearestTime } from './lib/baselinePrice'
+import { nearestBarTime, valueAtNearestTime } from './lib/baselinePrice'
 import {
-  CHART_DISPLAY_TIMEZONE_STORAGE_KEY,
-  CHART_DISPLAY_TIMEZONES,
-  labelForChartDisplayTimeZone,
-  readStoredChartDisplayTimeZoneIana,
-  type ChartDisplayTimeZoneIana,
-} from './lib/chartDisplayTimeZone'
-import {
-  formatUnixSecondsForDisplay,
-  resolveChartTimeZone,
-} from './lib/exchangeTimeFormat'
+  CHART_VISUAL_TIME_ZONES,
+  CHART_VISUAL_TZ_STORAGE_KEY,
+  fullLabelForVisualZone,
+  readStoredChartVisualTimeZone,
+  type ChartVisualTimeZoneIana,
+} from './lib/chartVisualTimeZone'
+import { formatUnixSecondsForDisplay } from './lib/exchangeTimeFormat'
 import {
   parseChartSeriesKindFromSearch,
   parseLinesFromSearch,
@@ -98,15 +95,15 @@ function companyNameBesideSymbol(meta: ChartInstrumentMeta): string | null {
 
 function ChartInstrumentHeader({
   meta,
-  displayTimeZone,
+  visualTimeZoneIana,
 }: {
   meta: ChartInstrumentMeta
-  displayTimeZone: { iana: ChartDisplayTimeZoneIana; label: string }
+  visualTimeZoneIana: ChartVisualTimeZoneIana
 }) {
   const company = companyNameBesideSymbol(meta)
   const venue = meta.fullExchangeName ?? meta.exchangeName
   const sub = [venue, meta.currency].filter(Boolean).join(' · ')
-  const clock = `Chart time · ${displayTimeZone.label} (${displayTimeZone.iana})`
+  const viz = fullLabelForVisualZone(visualTimeZoneIana)
 
   return (
     <div className="chart-instrument">
@@ -115,7 +112,9 @@ function ChartInstrumentHeader({
         {company != null ? <span className="chart-name">{company}</span> : null}
       </div>
       {sub ? <div className="chart-instrument-sub muted">{sub}</div> : null}
-      <div className="chart-instrument-sub muted">{clock}</div>
+      <div className="chart-instrument-sub muted">
+        Chart time · {viz} ({visualTimeZoneIana})
+      </div>
     </div>
   )
 }
@@ -151,8 +150,16 @@ function App() {
     readStoredFinvizAuth().trim(),
   )
 
-  const [chartDisplayTimeZone, setChartDisplayTimeZone] =
-    useState<ChartDisplayTimeZoneIana>(readStoredChartDisplayTimeZoneIana)
+  const [visualTimeZone, setVisualTimeZone] =
+    useState<ChartVisualTimeZoneIana>(readStoredChartVisualTimeZone)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHART_VISUAL_TZ_STORAGE_KEY, visualTimeZone)
+    } catch {
+      /* quota / private mode */
+    }
+  }, [visualTimeZone])
 
   useEffect(() => {
     try {
@@ -161,17 +168,6 @@ function App() {
       /* quota / private mode */
     }
   }, [finvizAuthToken])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        CHART_DISPLAY_TIMEZONE_STORAGE_KEY,
-        chartDisplayTimeZone,
-      )
-    } catch {
-      /* quota / private mode */
-    }
-  }, [chartDisplayTimeZone])
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -261,33 +257,19 @@ function App() {
     if (!bars?.length) return 0
     const t0 = lines[0]
     if (t0 != null) {
-      const lo = bars[0].time
-      const hi = bars[bars.length - 1].time
-      if (t0 >= lo && t0 <= hi) {
-        const v = valueAtNearestTime(bars, t0)
-        if (v != null) return v
-      }
+      const v = valueAtNearestTime(bars, t0)
+      if (v != null) return v
     }
     return bars[0].value
   }, [chartData?.bars, lines])
 
-  const linesOutsideBars = useMemo(() => {
+  const lineTimesSnappedToBars = useMemo(() => {
     const bars = chartData?.bars
-    if (!bars?.length || !lines.length) return false
-    const lo = bars[0].time
-    const hi = bars[bars.length - 1].time
-    return lines.some((t) => t < lo || t > hi)
+    if (!bars?.length || !lines.length) return []
+    return lines
+      .map((t) => nearestBarTime(bars, t))
+      .filter((x): x is number => x != null)
   }, [chartData?.bars, lines])
-
-  const resolvedChartDisplayTimeZone = useMemo(
-    () => resolveChartTimeZone(chartDisplayTimeZone),
-    [chartDisplayTimeZone],
-  )
-
-  const chartDisplayTimeZoneLabel = useMemo(
-    () => labelForChartDisplayTimeZone(chartDisplayTimeZone),
-    [chartDisplayTimeZone],
-  )
 
   const commitSymbol = () => {
     const s = symbolInput.trim() || 'AAPL'
@@ -403,24 +385,6 @@ function App() {
                 <option value="baseline">Baseline</option>
               </select>
             </label>
-            <label className="field">
-              <span className="label">Chart time zone</span>
-              <select
-                className="input select"
-                value={chartDisplayTimeZone}
-                onChange={(e) =>
-                  setChartDisplayTimeZone(
-                    e.target.value as ChartDisplayTimeZoneIana,
-                  )
-                }
-              >
-                {CHART_DISPLAY_TIMEZONES.map((z) => (
-                  <option key={z.iana} value={z.iana}>
-                    {z.label}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               type="button"
               className="btn"
@@ -434,7 +398,7 @@ function App() {
           <section className="lines-section">
             <label className="field field-grow">
               <span className="label">
-                Vertical lines (Unix times, comma-separated; ms ok)
+                Vertical lines (Unix seconds UTC, comma-separated; ms ok)
               </span>
               <input
                 className="input"
@@ -457,41 +421,51 @@ function App() {
       <div className="chart-wrap">
         {chartData?.bars.length ? (
           <>
-            <ChartInstrumentHeader
-              meta={chartData.meta}
-              displayTimeZone={{
-                iana: chartDisplayTimeZone,
-                label: chartDisplayTimeZoneLabel,
-              }}
-            />
+            <div className="chart-toolbar">
+              <ChartInstrumentHeader
+                meta={chartData.meta}
+                visualTimeZoneIana={visualTimeZone}
+              />
+              <div
+                className="chart-tz-toggle"
+                role="group"
+                aria-label="Clock shown on chart (display only)"
+              >
+                <span className="chart-tz-toggle-label muted">Axis</span>
+                {CHART_VISUAL_TIME_ZONES.map((z) => (
+                  <button
+                    key={z.iana}
+                    type="button"
+                    className={
+                      visualTimeZone === z.iana
+                        ? 'chart-tz-btn chart-tz-btn-active'
+                        : 'chart-tz-btn'
+                    }
+                    aria-pressed={visualTimeZone === z.iana}
+                    onClick={() => setVisualTimeZone(z.iana)}
+                  >
+                    {z.shortLabel}
+                  </button>
+                ))}
+              </div>
+            </div>
             <StockChart
               data={chartData.bars}
               lineTimes={lines}
               theme={chartTheme}
               seriesKind={chartKind}
               baselinePrice={baselinePrice}
-              chartTimeZone={resolvedChartDisplayTimeZone}
+              chartTimeZone={visualTimeZone}
             />
             {lines.length > 0 ? (
               <p className="chart-lines-note muted" role="status">
-                Vertical line times ({chartDisplayTimeZoneLabel}):{' '}
-                {lines
+                Vertical lines (snapped to nearest bar, shown in{' '}
+                {fullLabelForVisualZone(visualTimeZone)}):{' '}
+                {lineTimesSnappedToBars
                   .map((t) =>
-                    formatUnixSecondsForDisplay(t, resolvedChartDisplayTimeZone),
+                    formatUnixSecondsForDisplay(t, visualTimeZone),
                   )
                   .join(' · ')}
-              </p>
-            ) : null}
-            {linesOutsideBars ? (
-              <p className="chart-lines-note muted" role="status">
-                Some <code className="code-inline">lines</code> Unix times are
-                before the first bar or after the last (
-                {chartData.bars[0].time}–
-                {chartData.bars[chartData.bars.length - 1]?.time}). Those
-                markers are hidden. Build UTC seconds (e.g.{' '}
-                <code className="code-inline">Date.UTC(...)/1000</code> or{' '}
-                <code className="code-inline">new Date(sec * 1000)</code> to
-                verify).
               </p>
             ) : null}
           </>

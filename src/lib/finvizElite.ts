@@ -1,5 +1,6 @@
 import { isValid, parse } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
+import { CHART_TIME_ZONE_IANA } from './chartTimeZone'
 import type {
   ChartInstrumentMeta,
   IntradayChartResult,
@@ -12,10 +13,6 @@ const EXPORT_BASE = 'https://elite.finviz.com/quote_export.ashx'
 
 /** Finviz `p`: i1 = intraday (1-minute bars). */
 const TIMEFRAME = 'i1'
-
-function quoteTimeZone(): string {
-  return import.meta.env.VITE_FINVIZ_QUOTE_TZ?.trim() || 'America/New_York'
-}
 
 /** Maps app range to Finviz `r` (e.g. d1 = 1 calendar day). */
 function rangeToFinvizPeriod(range: IntradayRange): string {
@@ -105,7 +102,8 @@ function normalizeFinvizHybridAmPmDateTime(cell: string): string {
   return cell.trim()
 }
 
-function parseFlexibleDateTime(cell: string, tz: string): number | null {
+/** Naive CSV datetimes are interpreted as wall time in {@link CHART_TIME_ZONE_IANA}. */
+function parseFlexibleDateTime(cell: string): number | null {
   const c = normalizeFinvizHybridAmPmDateTime(cell.trim())
   if (!c) return null
 
@@ -141,7 +139,7 @@ function parseFlexibleDateTime(cell: string, tz: string): number | null {
     try {
       const d = parse(c, fmt, new Date(0))
       if (!isValid(d)) continue
-      const u = fromZonedTime(d, tz)
+      const u = fromZonedTime(d, CHART_TIME_ZONE_IANA)
       const ms = u.getTime()
       if (Number.isNaN(ms)) continue
       return Math.floor(ms / 1000)
@@ -151,7 +149,7 @@ function parseFlexibleDateTime(cell: string, tz: string): number | null {
   }
 
   try {
-    const u = fromZonedTime(c, tz)
+    const u = fromZonedTime(c, CHART_TIME_ZONE_IANA)
     const ms = u.getTime()
     if (!Number.isNaN(ms)) return Math.floor(ms / 1000)
   } catch {
@@ -282,11 +280,7 @@ function pickTimeAndValueCols(
   return null
 }
 
-function rowUnixTime(
-  row: string[],
-  cols: Cols,
-  tz: string,
-): number | null {
+function rowUnixTime(row: string[], cols: Cols): number | null {
   const { timeStrategy } = cols
   if (timeStrategy.kind === 'unix') {
     const cell = row[timeStrategy.idx]?.replace(/,/g, '').trim() ?? ''
@@ -297,16 +291,16 @@ function rowUnixTime(
   }
   if (timeStrategy.kind === 'single') {
     const cell = row[timeStrategy.idx]?.trim() ?? ''
-    return parseFlexibleDateTime(cell, tz)
+    return parseFlexibleDateTime(cell)
   }
   const d = row[timeStrategy.dateIdx]?.trim() ?? ''
   const t = row[timeStrategy.timeIdx]?.trim() ?? ''
   if (!d) return null
   const combined = t ? `${d} ${t}` : d
-  return parseFlexibleDateTime(combined, tz)
+  return parseFlexibleDateTime(combined)
 }
 
-function parseQuoteExportCsv(text: string, tz: string): { time: number; value: number }[] {
+function parseQuoteExportCsv(text: string): { time: number; value: number }[] {
   const raw = text.replace(/^\uFEFF/, '').trim()
   if (!raw) {
     throw new Error('Empty CSV from Finviz')
@@ -339,7 +333,7 @@ function parseQuoteExportCsv(text: string, tz: string): { time: number; value: n
     const row = parseCsvRow(lines[li])
     if (row.length < Math.max(cols.closeIdx, cols.openIdx) + 1) continue
 
-    const t = rowUnixTime(row, cols, tz)
+    const t = rowUnixTime(row, cols)
     if (t == null || !Number.isFinite(t)) continue
 
     const close = parsePrice(row[cols.closeIdx] ?? '')
@@ -368,7 +362,7 @@ function parseQuoteExportCsv(text: string, tz: string): { time: number; value: n
   return deduped
 }
 
-function buildMeta(symbol: string, tz: string): ChartInstrumentMeta {
+function buildMeta(symbol: string): ChartInstrumentMeta {
   const sym = symbol.trim() || '—'
   return {
     symbol: sym,
@@ -377,7 +371,7 @@ function buildMeta(symbol: string, tz: string): ChartInstrumentMeta {
     currency: null,
     exchangeName: null,
     fullExchangeName: null,
-    exchangeTimezoneName: tz,
+    exchangeTimezoneName: CHART_TIME_ZONE_IANA,
     exchangeTimezoneShort: null,
   }
 }
@@ -386,7 +380,7 @@ function buildMeta(symbol: string, tz: string): ChartInstrumentMeta {
  * 1-minute intraday bars from Finviz Elite `quote_export.ashx` (CSV).
  * Requests always go through `corsproxy.io` because Finviz does not send CORS headers.
  * `auth` is the `auth` query value from your Elite export URL.
- * Optional `VITE_FINVIZ_QUOTE_TZ` (IANA) defaults to `America/New_York` for naive datetimes.
+ * Naive datetimes in the CSV are read as US Eastern ({@link CHART_TIME_ZONE_IANA}).
  */
 export async function fetchFinvizEliteIntraday(
   symbol: string,
@@ -398,7 +392,6 @@ export async function fetchFinvizEliteIntraday(
   if (!token) {
     throw new Error('Missing Finviz export API token.')
   }
-  const tz = quoteTimeZone()
   const finvizUrl = buildExportUrl(symbol, range, token)
   const fetchUrl = `https://corsproxy.io/?${encodeURIComponent(finvizUrl)}`
 
@@ -415,10 +408,10 @@ export async function fetchFinvizEliteIntraday(
     if (text.trim().toLowerCase().startsWith('invalid export')) {
       throw new Error('Invalid Finviz export API token.')
     }
-    const bars = parseQuoteExportCsv(text, tz)
+    const bars = parseQuoteExportCsv(text)
     return {
       bars,
-      meta: buildMeta(symbol, tz),
+      meta: buildMeta(symbol),
     }
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {

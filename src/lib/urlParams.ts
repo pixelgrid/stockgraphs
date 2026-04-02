@@ -7,13 +7,14 @@ function isRange(s: string): s is IntradayRange {
   return RANGES.includes(s as IntradayRange)
 }
 
-/** Seconds since Unix epoch; values > 1e12 treated as milliseconds. */
+/** Seconds since Unix epoch (UTC); values > 1e12 treated as milliseconds. */
 export function normalizeTimestamp(raw: string): number | null {
   const n = Number(raw.trim())
   if (!Number.isFinite(n)) return null
   return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n)
 }
 
+/** `lines` query values: comma-separated Unix seconds (UTC instants), no timezone math applied. */
 export function parseLinesFromSearch(search: string): number[] {
   const params = new URLSearchParams(search)
   const raw =

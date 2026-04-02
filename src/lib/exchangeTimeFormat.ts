@@ -15,14 +15,6 @@ function isValidIanaTimeZone(tz: string): boolean {
   }
 }
 
-export function resolveChartTimeZone(
-  ianaTimeZone: string | null | undefined,
-): string {
-  const raw = ianaTimeZone?.trim()
-  if (raw && isValidIanaTimeZone(raw)) return raw
-  return FALLBACK_TZ
-}
-
 function utcMsFromTime(time: Time): number | null {
   if (typeof time === 'number') return time * 1000
   if (typeof time === 'string') {
@@ -66,6 +58,19 @@ export function formatUnixSecondsForDisplay(
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/** Format Unix seconds as calendar date/time in UTC (matches URL `lines` semantics). */
+export function formatUnixSecondsUtc(unixSec: number): string {
+  const d = new Date(unixSec * 1000)
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    hourCycle: 'h23',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d)
 }
 
 /** Crosshair / time-scale hover label. */

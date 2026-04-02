@@ -222,9 +222,55 @@ body {
   overflow: hidden;
 }
 
-.chart-instrument {
+.chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
+}
+
+.chart-instrument {
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-tz-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.chart-tz-toggle-label {
+  font-size: 0.75rem;
+  margin-right: 0.15rem;
+}
+
+.chart-tz-btn {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.chart-tz-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.chart-tz-btn-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
 
 .chart-instrument-main {

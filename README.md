@@ -4,8 +4,8 @@ A small, fully client-side web app that loads **1-minute intraday** prices from 
 
 ## What it does
 
-- **Chart:** One line series of close prices for the requested symbol and range. The time axis and crosshair show clock times for intraday data. **Chart time zone** (New York vs Amsterdam) is chosen in Settings and stored in `localStorage`; it only changes **how** times are labeled, not the underlying Unix data or bar positions.
-- **Vertical lines:** Optional Unix timestamps (seconds; millisecond values are accepted and converted). Each time is snapped to the **nearest bar** on the chart so lines align even if the exact second does not match a bar time.
+- **Chart:** One line series of close prices for the requested symbol and range. CSV timestamps are parsed as **US Eastern** (`America/New_York`). **NY / AMS** buttons next to the chart switch **only** how the axis, crosshair, and line-time labels are shown (Amsterdam = `Europe/Amsterdam`); bar data and URL `lines` values stay the same Unix instants. The choice is stored in `localStorage`.
+- **Vertical lines:** Optional Unix seconds (UTC instants). Each marker **snaps to the nearest bar** by time; baseline uses the close at the bar nearest the first `lines` value.
 - **Settings panel:** Symbol, range, refresh, and vertical-line inputs live behind a **Settings** button in the header so the default view stays minimal.
 - **Theme:** **Dark mode is the default.** Use the **Light / Dark** control to switch; the choice is stored in `localStorage`. The chart colors follow the same theme.
 - **Shareable URLs:** The address bar is kept in sync with symbol, range, and line times (via `history.replaceState`), so you can bookmark or share a link that reproduces the same view.
@@ -18,7 +18,7 @@ All parameters are optional unless noted.
 |-----------|---------|-------------|
 | `symbol` | `ticker` | Ticker symbol (default `AAPL`). |
 | `range` | — | Intraday window for **1m** (Finviz `p=i1`) data: `1d`, `5d`, or `7d` (default `1d`). Invalid values fall back to `1d`. |
-| `lines` | `at`, `timestamps`, `t` | Comma-separated Unix times for vertical lines. Values greater than `1e12` are treated as **milliseconds** and converted to seconds. |
+| `lines` | `at`, `timestamps`, `t` | Comma-separated **Unix seconds (UTC instants)** for vertical lines. Values greater than `1e12` are treated as **milliseconds** and converted to seconds. No extra timezone conversion is applied. |
 
 Example:
 
@@ -28,7 +28,7 @@ Example:
 
 ## Data source and limitations
 
-- Data comes from **Finviz Elite** CSV export: `https://elite.finviz.com/quote_export.ashx?t=…&p=i1&r=d1|d5|d7&auth=…` (`p=i1` = 1-minute bars; `r` = lookback). Configure the **`auth`** token in **Settings**; it is saved in **`localStorage`** for this origin only. Optional **`VITE_FINVIZ_QUOTE_TZ`** in `.env` sets the IANA timezone used to parse naive datetimes in the CSV (default `America/New_York`; see `.env.example`).
+- Data comes from **Finviz Elite** CSV export: `https://elite.finviz.com/quote_export.ashx?t=…&p=i1&r=d1|d5|d7&auth=…` (`p=i1` = 1-minute bars; `r` = lookback). Configure the **`auth`** token in **Settings**; it is saved in **`localStorage`** for this origin only. Naive datetimes in the CSV are interpreted as **US Eastern** (`America/New_York`).
 - The app **always** loads CSV through **`corsproxy.io`** (Finviz does not allow cross-origin browser requests). The relay sees your full Finviz URL (including `auth`); for stronger privacy run your own proxy and point the app at it (would require a small code change).
 
 ## Local development

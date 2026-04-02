@@ -1,8 +1,7 @@
-/** Close price at the bar whose time is closest to `targetSec` (Unix seconds). */
-export function valueAtNearestTime(
+function nearestBar(
   bars: { time: number; value: number }[],
   targetSec: number,
-): number | null {
+): { time: number; value: number } | null {
   if (!bars.length || !Number.isFinite(targetSec)) return null
   let best = bars[0]
   let bestDist = Math.abs(best.time - targetSec)
@@ -14,5 +13,23 @@ export function valueAtNearestTime(
       best = b
     }
   }
-  return best.value
+  return best
+}
+
+/** Unix time of the bar closest to `targetSec` (ties: earlier bar in the series wins). */
+export function nearestBarTime(
+  bars: { time: number; value: number }[],
+  targetSec: number,
+): number | null {
+  const b = nearestBar(bars, targetSec)
+  return b?.time ?? null
+}
+
+/** Close at the bar whose time is closest to `targetSec`. */
+export function valueAtNearestTime(
+  bars: { time: number; value: number }[],
+  targetSec: number,
+): number | null {
+  const b = nearestBar(bars, targetSec)
+  return b?.value ?? null
 }
